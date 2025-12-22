@@ -5,9 +5,7 @@ import { sendEmail } from "./email.js";
 import { randomUUID } from "node:crypto";
 import { insertEvent } from "./storage.js";
 import { normalizeBattery, shouldSendEmail } from "./rules.js";
-
 const app = Fastify({ logger: true });
-
 /* -------------------- SCHEMA -------------------- */
 const EventSchema = z.object({
     lat: z.number().min(-90).max(90),
@@ -24,14 +22,11 @@ const EventSchema = z.object({
     battery: z.number().optional(),
     notes: z.string().max(500).optional(),
 });
-
 /* -------------------- ROUTES -------------------- */
-
 // Health check
 app.get("/health", async () => ({
     ok: true,
 }));
-
 // Main ingest endpoint
 app.post("/v1/events", async (req, reply) => {
     /* ---------- AUTH ---------- */
@@ -42,7 +37,6 @@ app.post("/v1/events", async (req, reply) => {
             error: "Unauthorized",
         });
     }
-
     /* ---------- VALIDATION ---------- */
     const parsed = EventSchema.safeParse(req.body);
     if (!parsed.success) {
@@ -51,12 +45,9 @@ app.post("/v1/events", async (req, reply) => {
             error: parsed.error.flatten(),
         });
     }
-
     const event = parsed.data;
     const isoNow = new Date().toISOString();
-
     const decision = shouldSendEmail(event, isoNow);
-
     insertEvent({
         id: randomUUID(),
         createdAtIso: isoNow,
@@ -66,51 +57,41 @@ app.post("/v1/events", async (req, reply) => {
         battery: normalizeBattery(event.battery),
         notes: event.notes ?? null
     });
-
     if (!decision.ok) {
-        req.log.info(
-            { reason: decision.reason },
-            'Event logged but email skipped'
-        );
-
+        req.log.info({ reason: decision.reason }, 'Event logged but email skipped');
         return reply.send({
             ok: true,
             emailed: false,
             reason: decision.reason,
         });
     }
-
     await sendEmail(event);
-
     return reply.send({
         ok: true,
         emailed: true
     });
-
     /* ---------- LOG ---------- */
     req.log.info({ event }, "Incoming location event");
-
     /* ---------- EMAIL ---------- */
     try {
         await sendEmail(event);
-    } catch (err) {
+    }
+    catch (err) {
         req.log.error(err, "Failed to send email");
         return reply.code(500).send({
             ok: false,
             error: "Email delivery failed",
         });
     }
-
     /* ---------- RESPONSE ---------- */
     return reply.send({
         ok: true,
         emailed: true,
     });
 });
-
 app
     .listen({ port: config.port, host: "0.0.0.0" })
     .catch((err) => {
-        app.log.error(err);
-        process.exit(1);
-    });
+    app.log.error(err);
+    process.exit(1);
+});
