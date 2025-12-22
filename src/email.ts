@@ -9,29 +9,24 @@ function mapsLinks(lat: number, lng: number) {
     };
 }
 
-export function renderSubject(e: IncomingEvent) {
-    const base =
-        e.eventType === 'emergency'
-            ? '🚨 EMERGENCY'
-            : 'Location Update';
-
-    const ts = e.deviceTs ?? 'Now';
-    return `${base} – ${ts} IST`;
+function batteryString(b?: number) {
+    if (b == null) return 'N/A';
+    return b <= 1 ? `${Math.round(b * 100)}%` : `${Math.round(b)}%`;
 }
 
-export function renderBody(e: IncomingEvent) {
-    const { apple, google } = mapsLinks(e.lat, e.lng);
+/* ---------------- NORMAL ---------------- */
 
-    const battery =
-        e.battery == null
-            ? 'N/A'
-            : e.battery <= 1
-                ? `${Math.round(e.battery * 100)}%`
-                : `${Math.round(e.battery)}%`;
+function normalSubject(e: IncomingEvent) {
+    return `Location Update – ${e.deviceTs ?? 'Now'} IST`;
+}
+
+function normalBody(e: IncomingEvent) {
+    const { apple, google } = mapsLinks(e.lat, e.lng);
 
     return `
 Event Type: ${e.eventType}
 Time (IST): ${e.deviceTs ?? 'Not provided'}
+
 Latitude: ${e.lat}
 Longitude: ${e.lng}
 
@@ -41,13 +36,53 @@ ${apple}
 Google Maps:
 ${google}
 
-Battery: ${battery}
+Battery: ${batteryString(e.battery)}
 Notes: ${e.notes ?? '-'}
 
 —
 Sent via Geo Alert
 `.trim();
 }
+
+/* ---------------- EMERGENCY ---------------- */
+
+function emergencySubject(e: IncomingEvent) {
+    return `🚨 EMERGENCY – LOCATION SHARED – ${e.deviceTs ?? 'NOW'}`;
+}
+
+function emergencyBody(e: IncomingEvent) {
+    const { apple, google } = mapsLinks(e.lat, e.lng);
+
+    return `
+🚨🚨🚨 EMERGENCY ALERT 🚨🚨🚨
+
+I NEED HELP.
+
+My current location is below.
+
+Time (IST): ${e.deviceTs ?? 'Not provided'}
+
+Latitude: ${e.lat}
+Longitude: ${e.lng}
+
+OPEN LOCATION:
+Apple Maps:
+${apple}
+
+Google Maps:
+${google}
+
+Battery: ${batteryString(e.battery)}
+Notes: ${e.notes ?? 'No additional notes'}
+
+PLEASE CHECK ON ME IMMEDIATELY.
+
+—
+Sent via Geo Alert
+`.trim();
+}
+
+/* ---------------- SEND ---------------- */
 
 export async function sendEmail(e: IncomingEvent) {
     const transporter = nodemailer.createTransport({
@@ -60,17 +95,33 @@ export async function sendEmail(e: IncomingEvent) {
         },
     });
 
-    const to = [
-        config.recipients.primaryTo,
-        ...config.recipients.extraTo,
-    ].filter(Boolean);
+    const isEmergency = e.eventType === 'emergency';
+
+    const to =
+        isEmergency && config.recipients.emergencyTo.length
+            ? config.recipients.emergencyTo
+            : [
+                config.recipients.primaryTo,
+                ...config.recipients.extraTo,
+            ].filter(Boolean);
 
     await transporter.sendMail({
         from: config.smtp.from,
         to,
-        cc: config.recipients.cc.length ? config.recipients.cc : undefined,
-        bcc: config.recipients.bcc.length ? config.recipients.bcc : undefined,
-        subject: renderSubject(e),
-        text: renderBody(e),
+        cc: isEmergency ? undefined : config.recipients.cc,
+        bcc: isEmergency ? undefined : config.recipients.bcc,
+        subject: isEmergency
+            ? emergencySubject(e)
+            : normalSubject(e),
+        text: isEmergency
+            ? emergencyBody(e)
+            : normalBody(e),
+        headers: isEmergency
+            ? {
+                'X-Priority': '1',
+                'X-MSMail-Priority': 'High',
+                Importance: 'High',
+            }
+            : undefined,
     });
 }

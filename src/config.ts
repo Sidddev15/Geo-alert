@@ -27,6 +27,10 @@ export const config = {
         primaryTo: must('PRIMARY_TO'),
         extraTo: (process.env.EXTRA_TO ?? '').split(',').map(s => s.trim()).filter(Boolean),
         cc: (process.env.CC ?? '').split(',').map(s => s.trim()).filter(Boolean),
-        bcc: (process.env.BCC ?? '').split(',').map(s => s.trim()).filter(Boolean)
+        bcc: (process.env.BCC ?? '').split(',').map(s => s.trim()).filter(Boolean),
+        emergencyTo: (process.env.EMERGENCY_TO ?? '')
+            .split(',')
+            .map(s => s.trim())
+            .filter(Boolean),
     },
 };
