@@ -1,0 +1,6 @@
+node_modules/
+dist/
+geo-alert.sqlite
+
+.env
+.env.local
