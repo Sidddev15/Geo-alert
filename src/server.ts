@@ -44,8 +44,15 @@ app.post("/v1/events", async (req, reply) => {
     }
 
     /* ---------- VALIDATION ---------- */
+    req.log.info({ body: req.body, bodyType: typeof req.body }, 'raw body received');
+
     const parsed = EventSchema.safeParse(req.body);
     if (!parsed.success) {
+        req.log.warn(
+            { issues: parsed.error.issues, flattened: parsed.error.flatten(), body: req.body },
+            'validation failed'
+        );
+
         return reply.code(400).send({
             ok: false,
             error: parsed.error.flatten(),
