@@ -6,8 +6,14 @@ import { randomUUID } from "node:crypto";
 import { insertEvent } from "./storage.js";
 import { normalizeBattery, shouldSendEmail } from "./rules.js";
 import { issueEventToken, verifyEventToken } from './auth.js';
+import { listEvents } from './storage.js';
 
 const app = Fastify({ logger: true });
+
+const HistoryQuerySchema = z.object({
+    limit: z.string().optional(),
+    before: z.string().optional(),
+});
 
 /* -------------------- SCHEMA -------------------- */
 const EventSchema = z.object({
@@ -138,6 +144,42 @@ app.get('/auth/issue-token', async (req, reply) => {
         ok: true,
         token,
         expiresInSec: Number(process.env.TOKEN_TTL_SECONDS ?? 300),
+    });
+});
+
+app.get('/v1/history', async (req, reply) => {
+    // --- Auth (same as /v1/events) ---
+    const auth = req.headers.authorization;
+    if (!auth || !auth.startsWith('Bearer ')) {
+        return reply.code(401).send({ ok: false, error: 'Missing token' });
+    }
+    try {
+        const token = auth.slice('Bearer '.length);
+        verifyEventToken(token); // you already added this in F4
+    } catch {
+        return reply.code(401).send({ ok: false, error: 'Invalid token' });
+    }
+
+    const parsed = HistoryQuerySchema.safeParse(req.query ?? {});
+    if (!parsed.success) {
+        return reply.code(400).send({ ok: false, error: parsed.error.flatten() });
+    }
+
+    const limitRaw = parsed.data.limit ?? '50';
+    const limitNum = Number(limitRaw);
+    const limit = Number.isFinite(limitNum) ? limitNum : 50;
+
+    const before = parsed.data.before;
+
+    const events = listEvents({ limit, beforeIso: before });
+
+    // Provide next cursor
+    const nextBefore = events.length ? events[events.length - 1].createdAtIso : null;
+
+    return reply.send({
+        ok: true,
+        events,
+        nextBefore,
     });
 });
 

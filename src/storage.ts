@@ -44,6 +44,19 @@ const countTodayStmt = db.prepare<[string], { c: number }>(`
     SELECT COUNT(*) as c FROM events WHERE substr(createdAtIso,1,10) = ?
 `);
 
+const listEventsStmt = db.prepare<[number], StoredEvent>(`
+    SELECT * FROM events
+    ORDER BY createdAtIso DESC
+    LIMIT ?
+`);
+
+const listEventsBeforeStmt = db.prepare<[string, number], StoredEvent>(`
+    SELECT * FROM events
+    WHERE createdAtIso < ?
+    ORDER BY createdAtIso DESC
+    LIMIT ?
+`);
+
 export function insertEvent(e: StoredEvent) {
     insertStmt.run(e);
 }
@@ -57,4 +70,14 @@ export function countToday(isoNow: string): number {
     const day = isoNow.slice(0, 10);
     const row = countTodayStmt.get(day);
     return row?.c ?? 0;
+}
+
+export function listEvents(opts: { limit: number; beforeIso?: string }): StoredEvent[] {
+    const limit = Math.max(1, Math.min(opts.limit, 200)); // hard cap
+
+    if (opts.beforeIso) {
+        return listEventsBeforeStmt.all(opts.beforeIso, limit);
+    }
+
+    return listEventsStmt.all(limit);
 }
