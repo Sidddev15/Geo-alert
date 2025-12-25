@@ -5,6 +5,7 @@ import { sendEmail } from "./email.js";
 import { randomUUID } from "node:crypto";
 import { insertEvent } from "./storage.js";
 import { normalizeBattery, shouldSendEmail } from "./rules.js";
+import { issueEventToken, verifyEventToken } from './auth.js';
 
 const app = Fastify({ logger: true });
 
@@ -35,12 +36,16 @@ app.get("/health", async () => ({
 // Main ingest endpoint
 app.post("/v1/events", async (req, reply) => {
     /* ---------- AUTH ---------- */
-    const apiKey = req.headers["x-api-key"];
-    if (apiKey !== config.apiKey) {
-        return reply.code(401).send({
-            ok: false,
-            error: "Unauthorized",
-        });
+    const auth = req.headers.authorization;
+    if (!auth || !auth.startsWith('Bearer ')) {
+        return reply.code(401).send({ ok: false, error: 'Missing token' });
+    }
+
+    try {
+        const token = auth.slice('Bearer '.length);
+        verifyEventToken(token);
+    } catch {
+        return reply.code(401).send({ ok: false, error: 'Invalid token' });
     }
 
     /* ---------- VALIDATION ---------- */
@@ -112,6 +117,27 @@ app.post("/v1/events", async (req, reply) => {
     return reply.send({
         ok: true,
         emailed: true,
+    });
+});
+
+app.get('/auth/issue-token', async (req, reply) => {
+    const origin = req.headers.origin;
+
+    // Optional origin restriction (recommended)
+    const allowedOrigins = [
+        'https://geo-alert-web.vercel.app',
+    ];
+
+    if (origin && !allowedOrigins.includes(origin)) {
+        return reply.code(403).send({ ok: false });
+    }
+
+    const token = issueEventToken();
+
+    return reply.send({
+        ok: true,
+        token,
+        expiresInSec: Number(process.env.TOKEN_TTL_SECONDS ?? 300),
     });
 });
 
