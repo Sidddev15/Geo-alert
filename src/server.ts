@@ -3,10 +3,9 @@ import { z } from "zod";
 import { config } from "./config.js";
 import { sendEmail } from "./email.js";
 import { randomUUID } from "node:crypto";
-import { insertEvent } from "./storage.js";
+import { insertEvent, listEvents } from "./storage.js";
 import { normalizeBattery, shouldSendEmail } from "./rules.js";
-import { issueEventToken, verifyEventToken } from './auth.js';
-import { listEvents } from './storage.js';
+import { issueEventToken, verifyEventToken } from "./auth.js";
 
 const app = Fastify({ logger: true });
 
@@ -43,25 +42,30 @@ app.get("/health", async () => ({
 app.post("/v1/events", async (req, reply) => {
     /* ---------- AUTH ---------- */
     const auth = req.headers.authorization;
-    if (!auth || !auth.startsWith('Bearer ')) {
-        return reply.code(401).send({ ok: false, error: 'Missing token' });
+    if (!auth || !auth.startsWith("Bearer ")) {
+        return reply.code(401).send({ ok: false, error: "Missing token" });
+    }
+
+    const token = auth.slice("Bearer ".length);
+    const origin = req.headers.origin;
+    if (!origin) {
+        return reply.code(403).send({ ok: false, error: "Missing Origin" });
     }
 
     try {
-        const token = auth.slice('Bearer '.length);
-        verifyEventToken(token);
+        verifyEventToken(token, origin);
     } catch {
-        return reply.code(401).send({ ok: false, error: 'Invalid token' });
+        return reply.code(401).send({ ok: false, error: "Invalid token" });
     }
 
     /* ---------- VALIDATION ---------- */
-    req.log.info({ body: req.body, bodyType: typeof req.body }, 'raw body received');
+    req.log.info({ body: req.body, bodyType: typeof req.body }, "raw body received");
 
     const parsed = EventSchema.safeParse(req.body);
     if (!parsed.success) {
         req.log.warn(
             { issues: parsed.error.issues, flattened: parsed.error.flatten(), body: req.body },
-            'validation failed'
+            "validation failed"
         );
 
         return reply.code(400).send({
@@ -82,14 +86,11 @@ app.post("/v1/events", async (req, reply) => {
         lng: event.lng,
         eventType: event.eventType,
         battery: normalizeBattery(event.battery),
-        notes: event.notes ?? null
+        notes: event.notes ?? null,
     });
 
     if (!decision.ok) {
-        req.log.info(
-            { reason: decision.reason },
-            'Event logged but email skipped'
-        );
+        req.log.info({ reason: decision.reason }, "Event logged but email skipped");
 
         return reply.send({
             ok: true,
@@ -102,43 +103,25 @@ app.post("/v1/events", async (req, reply) => {
 
     return reply.send({
         ok: true,
-        emailed: true
-    });
-
-    /* ---------- LOG ---------- */
-    req.log.info({ event }, "Incoming location event");
-
-    /* ---------- EMAIL ---------- */
-    try {
-        await sendEmail(event);
-    } catch (err) {
-        req.log.error(err, "Failed to send email");
-        return reply.code(500).send({
-            ok: false,
-            error: "Email delivery failed",
-        });
-    }
-
-    /* ---------- RESPONSE ---------- */
-    return reply.send({
-        ok: true,
         emailed: true,
     });
 });
 
-app.get('/auth/issue-token', async (req, reply) => {
+app.get("/auth/issue-token", async (req, reply) => {
     const origin = req.headers.origin;
 
     // Optional origin restriction (recommended)
-    const allowedOrigins = [
-        'https://geo-alert-web.vercel.app',
-    ];
+    const allowedOrigins = ["https://geo-alert-web.vercel.app"];
 
-    if (origin && !allowedOrigins.includes(origin)) {
+    if (!origin) {
+        return reply.code(403).send({ ok: false, error: "Missing Origin" });
+    }
+
+    if (!allowedOrigins.includes(origin)) {
         return reply.code(403).send({ ok: false });
     }
 
-    const token = issueEventToken();
+    const token = issueEventToken(origin);
 
     return reply.send({
         ok: true,
@@ -147,17 +130,23 @@ app.get('/auth/issue-token', async (req, reply) => {
     });
 });
 
-app.get('/v1/history', async (req, reply) => {
+app.get("/v1/history", async (req, reply) => {
     // --- Auth (same as /v1/events) ---
     const auth = req.headers.authorization;
-    if (!auth || !auth.startsWith('Bearer ')) {
-        return reply.code(401).send({ ok: false, error: 'Missing token' });
+    if (!auth || !auth.startsWith("Bearer ")) {
+        return reply.code(401).send({ ok: false, error: "Missing token" });
     }
+
+    const token = auth.slice("Bearer ".length);
+    const origin = req.headers.origin;
+    if (!origin) {
+        return reply.code(403).send({ ok: false, error: "Missing Origin" });
+    }
+
     try {
-        const token = auth.slice('Bearer '.length);
-        verifyEventToken(token); // you already added this in F4
+        verifyEventToken(token, origin);
     } catch {
-        return reply.code(401).send({ ok: false, error: 'Invalid token' });
+        return reply.code(401).send({ ok: false, error: "Invalid token" });
     }
 
     const parsed = HistoryQuerySchema.safeParse(req.query ?? {});
@@ -165,7 +154,7 @@ app.get('/v1/history', async (req, reply) => {
         return reply.code(400).send({ ok: false, error: parsed.error.flatten() });
     }
 
-    const limitRaw = parsed.data.limit ?? '50';
+    const limitRaw = parsed.data.limit ?? "50";
     const limitNum = Number(limitRaw);
     const limit = Number.isFinite(limitNum) ? limitNum : 50;
 

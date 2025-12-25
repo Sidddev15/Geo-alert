@@ -9,10 +9,11 @@ if (!SECRET) {
 
 export type EventTokenPayload = {
     scope: 'event:send';
+    origin: string;
 };
 
-export function issueEventToken() {
-    const payload: EventTokenPayload = { scope: 'event:send' };
+export function issueEventToken(origin: string) {
+    const payload: EventTokenPayload = { scope: 'event:send', origin };
 
     return jwt.sign(payload, SECRET, {
         expiresIn: TTL,
@@ -20,17 +21,16 @@ export function issueEventToken() {
     });
 }
 
-export function verifyEventToken(token: string): EventTokenPayload {
-    const decoded = jwt.verify(token, SECRET, {
-        issuer: 'geo-alert',
-    });
+export function verifyEventToken(token: string, requestOrigin: string): EventTokenPayload {
+    const decoded = jwt.verify(token, SECRET, { issuer: 'geo-alert' });
 
-    if (
-        typeof decoded !== 'object' ||
-        (decoded as any).scope !== 'event:send'
-    ) {
-        throw new Error('Invalid token scope');
-    }
+    if (typeof decoded !== 'object') throw new Error('Invalid token');
 
-    return decoded as EventTokenPayload;
+    const d = decoded as any;
+
+    if (d.scope !== 'event:send') throw new Error('Invalid scope');
+    if (typeof d.origin !== 'string') throw new Error('Missing origin claim');
+    if (d.origin !== requestOrigin) throw new Error('Origin mismatch');
+
+    return d as EventTokenPayload;
 }
