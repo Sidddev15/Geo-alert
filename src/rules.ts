@@ -11,23 +11,23 @@ export function normalizeBattery(b?: number): number | null {
     return null;
 }
 
-export function shouldSendEmail(
+export async function shouldSendEmail(
     e: IncomingEvent,
     isoNow: string
-): { ok: boolean; reason?: string } {
+): Promise<{ ok: boolean; reason?: string }> {
     if (e.eventType === 'emergency') {
         return { ok: true };
     }
 
-    const daily = countToday(isoNow);
+    const daily = await countToday(isoNow);
     if (daily >= DAILY_CAP) {
         return { ok: false, reason: 'Daily cap reached' };
     }
 
-    const last = getLastEvent();
+    const last = await getLastEvent();
     if (last) {
         const diffMin =
-            (Date.parse(isoNow) - Date.parse(last.createdAtIso)) / 60000;
+            (Date.parse(isoNow) - last.createdAtIso.getTime()) / 60000;
 
         if (diffMin < COOLDOWN_MIN) {
             return {

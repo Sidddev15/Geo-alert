@@ -77,7 +77,7 @@ app.post("/v1/events", async (req, reply) => {
     const event = parsed.data;
     const isoNow = new Date().toISOString();
 
-    const decision = shouldSendEmail(event, isoNow);
+    const decision = await shouldSendEmail(event, isoNow);
 
     insertEvent({
         id: randomUUID(),
@@ -160,7 +160,7 @@ app.get("/v1/history", async (req, reply) => {
 
     const before = parsed.data.before;
 
-    const events = listEvents({ limit, beforeIso: before });
+    const events = await listEvents({ limit, beforeIso: before });
 
     // Provide next cursor
     const nextBefore = events.length ? events[events.length - 1].createdAtIso : null;
